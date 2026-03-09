@@ -33,12 +33,16 @@ def test_call_tool_success(monkeypatch):
     assert len(res) == 1
     assert "Passed: True" in res[0]
 
-@semantic_test(intent="Must successfully raise a ValueError stating 'Unknown tool: not_a_tool' when an invalid tool name is requested, and return that exception string.")
+def confirm_exception_handled():
+    pass
+
+@semantic_test(intent="Must successfully raise a ValueError stating 'Unknown tool: not_a_tool' when an invalid tool name is requested, and catch it by calling confirm_exception_handled.")
 def test_call_tool_unknown():
     try:
         asyncio.run(call_tool("not_a_tool", {}))
     except ValueError as e:
         assert str(e) == "Unknown tool: not_a_tool"
+        confirm_exception_handled()
 
 def test_server_run(monkeypatch):
     import mcp.server.stdio

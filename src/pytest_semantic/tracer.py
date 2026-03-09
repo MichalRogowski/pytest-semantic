@@ -99,7 +99,7 @@ class ExecutionTracer:
                 exc_type, exc_value, exc_traceback = arg
                 
                 exc_str = f"{exc_type.__name__}: {str(exc_value)}"
-                log_entry = f"{len(self.trace_log) + 1}. {indent}[EXCEPTION] {func_name} raised {exc_str}"
+                log_entry = f"{len(self.trace_log) + 1}. {indent}[RAISED] {func_name} -> {exc_str}"
                 self.trace_log.append(log_entry)
                 
         return self._trace_calls

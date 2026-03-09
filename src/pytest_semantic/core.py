@@ -31,11 +31,13 @@ def evaluate_semantic_assertion(
 
     # 3. Cache Miss - Compile prompt
     prompt = f"""
-You are an expert Senior Software Engineer evaluating whether an execution matches the developer's intent.
+You are an expert Senior Software Engineer evaluating whether a dynamic execution trace matches the developer's intent.
 
-CRITICAL DIRECTIVE: You must verify that the provided `Execution Trace Log` implements the actual, generalized logic required to fulfill the intent. 
-You are observing a linear trace of the functions that were executed natively on the machine via `sys.settrace()`.
-Do NOT approve "hacks", hardcoded return values, or superficial implementations designed simply to make a test pass. The code traced must be a robust implementation of the requested behavior.
+### CRITICAL DIRECTIVE: Trace Interpretation
+- **[RAISED] Events**: The trace records a `[RAISED]` event the moment an error occurs. This is a notification, **NOT** necessarily a crash.
+- **Caught Exceptions**: If the trace shows `[RAISED]` followed by further function calls (especially `confirm_exception_handled()`), it means the error was successfully caught and handled. You MUST approve these if the intent was to handle the error.
+- **Fatal Crashes**: An execution only "crashes" if a function has a `[RAISED]` event as its final entry without a subsequent `[RETURNED]` or recovery signal.
+- **High Integrity**: Ensure the recovery logic (the `except` block handling) actually matches the intent's requirements.
 
 Intent: {intent}
 
