@@ -1,32 +1,52 @@
-from pytest_semantic import semantic_verify
+from pytest_semantic import semantic_test
 
-@semantic_verify(intent="Greet the user by their name properly formatted.")
-def greet(name: str):
-    return f"Hello, {name.capitalize()}!"
+class Database:
+    def __init__(self):
+        self.users = []
 
-def test_greet_success():
-    # This should pass because it matches the intent
-    result = greet("alice")
-    assert result == "Hello, Alice!"
+    def exists(self, email):
+        return any(u == email for u in self.users)
 
-@semantic_verify(intent="Handle dangerous or invalid numeric inputs securely by returning None.")
-def process_number(n):
-    # This will fail the semantic check if we pass 'infinity' string and it doesn't return None.
-    return int(n)
+    def save(self, email):
+        self.users.append(email)
+        return True
 
-def test_process_number_failure():
-    # We expect this to fail the semantic assertion if we pass a bad string and 
-    # the function just crashes with ValueError without explicitly matching intent 
-    # (or maybe it matches if exception is fine... but the intent says *return None*)
-    process_number("10") # Should be fine
-    process_number("invalid") # Exception is raised! 
+class EmailService:
+    @staticmethod
+    def send_welcome(email):
+        # In a real app, this sends an email
+        print(f"Sending welcome email to {email}")
+        return True
 
-def _secret_helper(x):
-    return x * 42
+class RegistrationService:
+    def __init__(self, db, email_svc):
+        self.db = db
+        self.email_svc = email_svc
 
-@semantic_verify(intent="Must process using the secret helper function.")
-def complex_logic(x):
-    return _secret_helper(x)
+    def register(self, email):
+        if not self.db.exists(email):
+            if self.db.save(email):
+                self.email_svc.send_welcome(email)
+                return "Success"
+        return "Already Exists"
 
-def test_complex_logic():
-    assert complex_logic(2) == 84
+# --- THE TEST ---
+
+@semantic_test(intent="User registers successfully: check DB if exists, save if not, and send welcome email.")
+def test_successful_registration_flow():
+    db = Database()
+    email_svc = EmailService()
+    service = RegistrationService(db, email_svc)
+    
+    result = service.register("new_user@example.com")
+    assert result == "Success"
+
+@semantic_test(intent="Handle duplicate registration: check DB, see it exists, and do NOT send email or save again.")
+def test_duplicate_registration_flow():
+    db = Database()
+    db.save("existing@example.com") # Pre-populate
+    email_svc = EmailService()
+    service = RegistrationService(db, email_svc)
+    
+    result = service.register("existing@example.com")
+    assert result == "Already Exists"
