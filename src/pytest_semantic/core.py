@@ -30,33 +30,39 @@ def evaluate_semantic_assertion(
         )
 
     # 3. Cache Miss - Compile prompt
-    prompt = f"""
-You are an expert Senior Software Engineer evaluating whether a dynamic execution trace matches the developer's intent.
-
-### CRITICAL DIRECTIVE: Trace Interpretation
-- **[RAISED] Events**: The trace records a `[RAISED]` event the moment an error occurs. This is a notification, **NOT** necessarily a crash.
-- **Caught Exceptions**: If the trace shows `[RAISED]` followed by further function calls (especially `confirm_exception_handled()`), it means the error was successfully caught and handled. You MUST approve these if the intent was to handle the error.
-- **Fatal Crashes**: An execution only "crashes" if a function has a `[RAISED]` event as its final entry without a subsequent `[RETURNED]` or recovery signal.
-- **High Integrity**: Ensure the recovery logic (the `except` block handling) actually matches the intent's requirements.
-
-Intent: {intent}
-
-Execution Trace Log:
-```python
-{trace_log}
-```
-
-Did this execution successfully fulfill the Intent? Provide your answer as a JSON object with 'passed' (boolean) and 'reason' (string).
-"""
+    system_content = "You evaluate semantic test assertions. Always return structured output matching the schema."
     
-    model = os.getenv("SEMANTIC_MODEL", "openrouter/gpt-4o-mini") # default to mini for cost
+    # We use a multi-block format for better caching on OpenRouter/Anthropic/Gemini
+    user_messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"You are an expert Senior Software Engineer evaluating whether a dynamic execution trace matches the developer's intent.\n\n### CRITICAL DIRECTIVE: Trace Interpretation\n- **[RAISED] Events**: The trace records a `[RAISED]` event the moment an error occurs. This is a notification, **NOT** necessarily a crash.\n- **Caught Exceptions**: If the trace shows `[RAISED]` followed by further function calls (especially `confirm_exception_handled()`), it means the error was successfully caught and handled.\n- **Fatal Crashes**: An execution only 'crashes' if a function has a `[RAISED]` event as its final entry without a subsequent `[RETURNED]` or recovery signal.\n- **High Integrity**: Ensure the recovery logic actually matches the intent's requirements.\n\nIntent: {intent}\n\nExecution Trace Log:"
+                },
+                {
+                    "type": "text",
+                    "text": trace_log,
+                    "cache_control": {"type": "ephemeral"} # OpenRouter/Anthropic/Gemini Optimization
+                },
+                {
+                    "type": "text",
+                    "text": "\nDid this execution successfully fulfill the Intent? Provide your answer as a JSON object with 'passed' (boolean) and 'reason' (string)."
+                }
+            ]
+        }
+    ]
+    
+    model = os.getenv("SEMANTIC_MODEL", "openrouter/gpt-4o-mini")
     
     from openai import OpenAI
-    
     client = None
     
     # If using openrouter or minimax via openrouter
-    if model.startswith("openrouter/") or model.startswith("minimax/"):
+    is_openrouter = model.startswith("openrouter/") or model.startswith("minimax/")
+    
+    if is_openrouter:
         client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=os.environ.get("OPENROUTER_API_KEY"),
@@ -65,18 +71,20 @@ Did this execution successfully fulfill the Intent? Provide your answer as a JSO
                 "X-Title": "pytest-semantic",
             }
         )
-        if model.startswith("openrouter/"):
-            pass
     else:
-        # Fallback to standard OpenAI or another provider that supports standard OpenAI client
+        # Fallback to standard OpenAI
         client = OpenAI()
 
     try:
+        # Note: Beta parse might not support prompt caching field directly in all providers, 
+        # but OpenRouter handles it via content blocks or top-level 'cache_control'.
+        # For explicit breakpoints, we use the message content list defined above.
+        
         response = client.beta.chat.completions.parse(
             model=model,
             messages=[
-                {"role": "system", "content": "You evaluate semantic test assertions. Always return structured output matching the schema."},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": system_content},
+                *user_messages
             ],
             response_format=SemanticEvaluation,
         )

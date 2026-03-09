@@ -12,20 +12,28 @@ Shift-Left Execution: Catch logic flaws on your MacBook in milliseconds, instead
 
 ## 📦 Installation
 
-This project utilizes `uv` for blazing-fast dependency management and requires Python >= 3.14.
+You can install `pytest-semantic` directly via `pip` or `uv`. This requires Python >= 3.14.
 
 ```bash
-# Clone the repository
-git clone https://github.com/MichalRogowski/pytest-semantic.git
-cd pytest-semantic
+# Using uv (recommended)
+uv add --dev pytest-semantic
 
-# Install the dependencies with uv
-uv sync
-
-# Provide your OpenRouter API Key (Supports OpenAI, Anthropic, Gemini, etc.)
-cp .env.example .env
-# Edit .env and paste your OPENROUTER_API_KEY
+# Using pip
+pip install pytest-semantic
 ```
+
+### Setup
+
+1. **Provide your API Key**: `pytest-semantic` supports OpenRouter (recommended), OpenAI, Anthropic, and Gemini.
+   ```bash
+   export OPENROUTER_API_KEY='your-key-here'
+   ```
+2. **(Optional) Configure Model**: Defaults to `openrouter/gpt-4o-mini`.
+   ```bash
+   export SEMANTIC_MODEL='openrouter/gpt-4o-mini'
+   ```
+
+---
 
 ## 🚀 Quick Start
 
@@ -85,6 +93,9 @@ The LLM evaluates this trace log against your `intent`. If the sequence of event
 
 ### Deterministic SQLite Caching
 Invoking an LLM on every test run is slow. `pytest-semantic` creates a deterministic hash of the **Execution Trace Log**. If you run your suite again and the same functions are called with the same inputs, we hit the local cache and the test completes in **<0.1 seconds**.
+
+### OpenRouter Prompt Caching
+When using OpenRouter with supported models (like Anthropic or Gemini), `pytest-semantic` automatically injects `cache_control` breakpoints. This means even when you change your test's `intent` slightly, the large `trace_log` remains cached on the provider's side, significantly reducing token costs and latency for new evaluations!
 
 ### Parallel Execution with `pytest-xdist`
 `pytest-semantic` is thread/process-safe. Each worker manages its own `sys.settrace` context.
