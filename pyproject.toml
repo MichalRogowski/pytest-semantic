@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pytest-semantic"
+version = "0.1.0"
+description = "Semantic assertions for pytest using LLMs"
+requires-python = ">=3.14"
+authors = [
+    {name = "Michal Rogowski"}
+]
+dependencies = [
+    "pytest>=7.0.0",
+    "openai>=1.0.0",
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "mcp>=1.0.0"
+]
+
+[project.entry-points.pytest11]
+pytest_semantic = "pytest_semantic.plugin"
+
+[project.scripts]
+pytest-semantic-mcp = "pytest_semantic.server:run"
+
+[dependency-groups]
+dev = [
+    "pytest-cov>=7.0.0",
+    "pytest-xdist>=3.8.0",
+]
