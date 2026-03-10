@@ -68,15 +68,32 @@ class ExecutionTracer:
     def _format_args(self, frame) -> str:
         # Extract the local variables from the frame at the moment of the function call
         arg_info = inspect.getargvalues(frame)
-        args_dict = {arg: arg_info.locals.get(arg) for arg in arg_info.args}
+        args_dict = {}
         
+        sensitive_keys = {"password", "secret", "token", "api_key", "auth", "credential", "cert"}
+        
+        def _sanitize_val(k: str, v):
+            k_lower = k.lower()
+            if any(sensitive in k_lower for sensitive in sensitive_keys):
+                return "[REDACTED]"
+            return v
+
+        for arg in arg_info.args:
+            val = arg_info.locals.get(arg)
+            args_dict[arg] = _sanitize_val(arg, val)
+            
         if arg_info.varargs and arg_info.varargs in arg_info.locals:
-            args_dict[f"*{arg_info.varargs}"] = arg_info.locals[arg_info.varargs]
+            val = arg_info.locals[arg_info.varargs]
+            args_dict[f"*{arg_info.varargs}"] = _sanitize_val(arg_info.varargs, val)
             
         if arg_info.keywords and arg_info.keywords in arg_info.locals:
-            args_dict[f"**{arg_info.keywords}"] = arg_info.locals[arg_info.keywords]
+            val = arg_info.locals[arg_info.keywords]
+            args_dict[f"**{arg_info.keywords}"] = _sanitize_val(arg_info.keywords, val)
             
-        return str(args_dict)
+        final_str = str(args_dict)
+        if len(final_str) > 500:
+            final_str = final_str[:500] + "... [truncated]"
+        return final_str
 
     def _on_py_start(self, code, instruction_offset, *args):
         filepath = code.co_filename

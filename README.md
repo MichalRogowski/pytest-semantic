@@ -35,7 +35,7 @@ SEMANTIC_BASE_URL=https://openrouter.ai/api/v1
 
 ---
 
-## � MCP Server Integration
+## MCP Server Integration
 
 `pytest-semantic-llm` includes an Anthropic MCP Server. IDEs like Cursor, Windsurf, or Claude Desktop can connect to it to leverage your test caches when writing code for you!
 
@@ -81,7 +81,7 @@ If you added it to your project's `dev` dependencies (`uv add --dev pytest-seman
 
 ---
 
-## �🚀 Quick Start: A Dead-Simple Example
+## 🚀 Quick Start: A Dead-Simple Example
 
 Stop mocking side-effects. Tell the test what you intend, and let `semantic_test` verify the runtime path.
 
@@ -158,6 +158,29 @@ To force a full re-evaluation:
 ```bash
 rm .pytest_semantic_cache.db
 ```
+---
+
+## 🔒 Security & Air-Gapped Execution
+
+`pytest-semantic-llm` enforces absolute data privacy and security mechanisms by default:
+1. **Secret Redaction:** Function arguments named `password`, `secret`, `token`, `api_key`, or `auth` are automatically intercepted and replaced with `[REDACTED]` in the trace log before ever leaving your machine.
+2. **Trace Boundaries:** Execution tracing is strictly sandboxed to your immediate project directory. Deep loops inside third-party `site-packages` or standard libraries (e.g. `requests`, `sqlalchemy`) are categorically ignored, preventing the capture of internal auth headers or DB connections.
+3. **Data Minimization:** Massive payloads (e.g. DataFrames, large JSON) passed to functions are strictly truncated to prevent trace bloat and enforce the principle of least privilege. 
+
+### Local-Only / Air-Gapped
+For enterprise environments with strict zero-trust or air-gapped policies, you can run `pytest-semantic` against local inference engines like **Ollama** or **vLLM**—guaranteeing your execution traces never transit the public internet.
+
+Make sure your local server is running (e.g., `ollama run llama3.3:70b` or `vllm serve Qwen/Qwen2.5-Coder-32B-Instruct`), and update your `.env`:
+
+```env
+SEMANTIC_PROVIDER=openai
+SEMANTIC_BASE_URL=http://localhost:11434/v1
+SEMANTIC_MODEL=llama3.3:70b
+
+# The standard OpenAI SDK requires an API key variable to be present to function, but it is ignored by local servers.
+OPENAI_API_KEY=local-stub
+```
+
 ---
 
 # User Reviews
