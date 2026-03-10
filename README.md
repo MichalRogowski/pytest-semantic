@@ -112,10 +112,40 @@ rm .pytest_semantic_cache.db
 
 ## 🔌 MCP Server Integration
 
-`pytest-semantic` includes an Anthropic MCP Server. IDEs like Cursor or Claude Desktop can connect to it to leverage your test caches when writing code for you!
+`pytest-semantic` includes an Anthropic MCP Server. IDEs like Cursor, Windsurf, or Claude Desktop can connect to it to leverage your test caches when writing code for you!
 
-```bash
-uv run pytest-semantic-mcp
+### Option 1: Global Execution (Recommended)
+You don't even need to install `pytest-semantic` into your project to use its agent if you have `uv` installed. Add this to your IDE's MCP settings (e.g., `claude_desktop_config.json` or Cursor's MCP config):
+
+```json
+{
+  "mcpServers": {
+    "pytest-semantic": {
+      "command": "uvx",
+      "args": ["pytest-semantic-mcp"],
+      "env": {
+        "OPENROUTER_API_KEY": "<your-api-key-here>"
+      }
+    }
+  }
+}
+```
+
+### Option 2: Project-Local Execution
+If you added `pytest-semantic` to your project's `dev` dependencies using `uv add --dev pytest-semantic`, you can configure the MCP to run directly from your local environment:
+
+```json
+{
+  "mcpServers": {
+    "pytest-semantic": {
+      "command": "uv",
+      "args": ["run", "pytest-semantic-mcp"],
+      "env": {
+        "OPENROUTER_API_KEY": "<your-api-key-here>"
+      }
+    }
+  }
+}
 ```
 ---
 
