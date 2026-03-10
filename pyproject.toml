@@ -3,8 +3,8 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pytest-semantic"
-version = "0.1.3"
+name = "pytest-semantic-llm"
+version = "0.1.4"
 description = "Semantic assertions for pytest using LLMs"
 requires-python = ">=3.14"
 authors = [

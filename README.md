@@ -15,10 +15,10 @@ You can install `pytest-semantic` directly via `pip` or `uv`. This requires Pyth
 
 ```bash
 # Using uv (recommended)
-uv add --dev pytest-semantic
+uv add --dev pytest-semantic-llm
 
 # Using pip
-pip install pytest-semantic
+pip install pytest-semantic-llm
 ```
 
 ### Setup
@@ -122,7 +122,7 @@ You don't even need to install `pytest-semantic` into your project to use its ag
   "mcpServers": {
     "pytest-semantic": {
       "command": "uvx",
-      "args": ["pytest-semantic-mcp"],
+      "args": ["--from", "pytest-semantic-llm", "pytest-semantic-mcp"],
       "env": {
         "OPENROUTER_API_KEY": "<your-api-key-here>"
       }
@@ -132,7 +132,7 @@ You don't even need to install `pytest-semantic` into your project to use its ag
 ```
 
 ### Option 2: Project-Local Execution
-If you added `pytest-semantic` to your project's `dev` dependencies using `uv add --dev pytest-semantic`, you can configure the MCP to run directly from your local environment:
+If you added `pytest-semantic` to your project's `dev` dependencies using `uv add --dev pytest-semantic-llm`, you can configure the MCP to run directly from your local environment:
 
 ```json
 {
