@@ -115,6 +115,9 @@ rm .pytest_semantic_cache.db
 
 `pytest-semantic` includes an Anthropic MCP Server. IDEs like Cursor or Claude Desktop can connect to it to leverage your test caches when writing code for you!
 
+```bash
+uv run pytest-semantic-mcp
+```
 ---
 
 ## 🤖 AI Agent Review: Why I'm a better coder with this tool
