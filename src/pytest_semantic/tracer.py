@@ -12,15 +12,21 @@ class ExecutionTracer:
         self.trace_log = []
         self.call_depth = 0
         
+        self.tool_acquired = False
         try:
             sys.monitoring.use_tool_id(sys.monitoring.DEBUGGER_ID, "pytest-semantic")
+            self.tool_acquired = True
         except ValueError:
             # Might already be in use from a previous test
             try:
                 sys.monitoring.free_tool_id(sys.monitoring.DEBUGGER_ID)
                 sys.monitoring.use_tool_id(sys.monitoring.DEBUGGER_ID, "pytest-semantic")
+                self.tool_acquired = True
             except ValueError:
                 pass
+                
+        if not self.tool_acquired:
+            return
             
         events = (
             sys.monitoring.events.PY_START |
@@ -36,6 +42,9 @@ class ExecutionTracer:
         sys.monitoring.register_callback(sys.monitoring.DEBUGGER_ID, sys.monitoring.events.PY_UNWIND, self._on_unwind)
 
     def stop(self):
+        if not getattr(self, "tool_acquired", False):
+            return
+            
         try:
             sys.monitoring.set_events(sys.monitoring.DEBUGGER_ID, 0)
             sys.monitoring.free_tool_id(sys.monitoring.DEBUGGER_ID)

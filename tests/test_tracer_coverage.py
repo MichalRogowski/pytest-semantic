@@ -121,3 +121,35 @@ def test_tracer_should_trace_file_filtering():
     assert tracer._should_trace_file("/usr/local/lib/python3.12/site-packages/bar.py") is False
     assert tracer._should_trace_file("/project/root/app.py") is True
     assert tracer._should_trace_file("/outside/app.py") is False
+
+def test_tracer_start_use_tool_id_valueerror_twice(monkeypatch):
+    tracer = ExecutionTracer(os.getcwd())
+    
+    # Mock sys.monitoring to always raise ValueError on use_tool_id and free_tool_id
+    def mock_raise_valueerror(*args, **kwargs):
+        raise ValueError("Tool ID in use")
+        
+    monkeypatch.setattr(sys.monitoring, "use_tool_id", mock_raise_valueerror)
+    monkeypatch.setattr(sys.monitoring, "free_tool_id", mock_raise_valueerror)
+    
+    # Should safely catch the ValueError and pass
+    tracer.start()
+    tracer.stop()
+
+def test_tracer_format_args_redaction():
+    tracer = ExecutionTracer(os.getcwd())
+    def helper(password):
+        return sys._getframe(0)
+    frame = helper("super_secret")
+    args_str = tracer._format_args(frame)
+    assert "[REDACTED]" in args_str
+    assert "super_secret" not in args_str
+
+def test_tracer_format_args_truncation():
+    tracer = ExecutionTracer(os.getcwd())
+    def helper(payload):
+        return sys._getframe(0)
+    frame = helper("A" * 600)
+    args_str = tracer._format_args(frame)
+    assert "... [truncated]" in args_str
+    assert len(args_str) == 500 + len("... [truncated]")
