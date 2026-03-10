@@ -1,19 +1,17 @@
 # Pytest Semantic LLM 🧠
 
-**Stop writing brittle mocks. Test your true logic.**
+**Stop writing brittle mocks. Start testing your true intent.**
 
-`pytest-semantic-llm` acts like a Senior Staff Engineer verifying your code. It uses Python's native `sys.settrace()` to record exactly what your function *did*—every inner function call, argument, and exception—and asks an LLM if the execution journey matches your plain-English intent.
+Standard tests only verify that `Input A` produces `Output B`. They are completely blind to *how* that happened. 
+If your test asserts a function returns `True`, it doesn't care if a critical database call was silently skipped or if an exception was caught but ignored. 
 
-**Value Proposition:**
-*   **Less code:** Delete your messy `patch` and `MagicMock` boilerplate.
-*   **Real verification:** Catch logic flaws and swallowed exceptions that `assert x == 5` completely ignores.
-*   **MCP Ready:** Plug it straight into Cursor/Claude Desktop so your AI agent can verify its own code.
+`pytest-semantic-llm` acts like a Senior Engineer sitting on your shoulder. It uses Python's native `sys.settrace()` to record the exact path your code took—every internal function call, argument, and exception. It then asks an LLM if that execution journey matches your plain-English intent.
+
+* **Catch "Silent" Architectural Flaws:** It fails your test if you promised a recovery logic in your intent, but the execution trace reveals it was never actually run.
+* **Radical Simplification:** Stop struggling with deep, brittle `MagicMock` chains. Tell the system *"Check that we try the cache first, and only hit the API on a miss"* and let the tracer verify the path. Write to *intend*, not to *verify*.
+* **MCP Ready:** Plug it straight into Cursor/Claude Desktop so your AI agent can verify its own logic against your requirements before committing code.
 
 ## 📦 Installation
-
-```bash
-uv add --dev pytest-semantic-llm
-```
 
 You can install `pytest-semantic` directly via `pip` or `uv`. This requires Python >= 3.14.
 
