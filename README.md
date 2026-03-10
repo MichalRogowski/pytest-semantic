@@ -1,14 +1,13 @@
 # Pytest Semantic LLM 🧠
 
-**Stop writing brittle mocks. Start testing your true intent.**
+**Fly through development with vibe coding, without fear of shipping broken logic.**
 
-Standard tests only verify that `Input A` produces `Output B`. They are completely blind to *how* that happened. 
-If your test asserts a function returns `True`, it doesn't care if a critical database call was silently skipped or if an exception was caught but ignored. 
+LLMs let you move at light-speed. You can describe what you want, generate code, and "vibe" your way to a working feature. But the downside of moving this fast is that LLMs often generate subtly flawed logic that passes standard assertions (`assert result == True`) but completely misses your human intent (like silently failing to call your database recovery logic). 
 
-`pytest-semantic-llm` acts like a Senior Engineer sitting on your shoulder. It uses Python's native `sys.settrace()` to record the exact path your code took—every internal function call, argument, and exception. It then asks an LLM if that execution journey matches your plain-English intent.
+`pytest-semantic-llm` is your safety net for the AI-coding era. It uses Python's native `sys.settrace()` to record the exact path your code took—every internal function call, argument, and exception. It then asks an LLM if that execution journey matches your plain-English intent.
 
-* **Catch "Silent" Architectural Flaws:** It fails your test if you promised a recovery logic in your intent, but the execution trace reveals it was never actually run.
-* **Radical Simplification:** Stop struggling with deep, brittle `MagicMock` chains. Tell the system *"Check that we try the cache first, and only hit the API on a miss"* and let the tracer verify the path. Write to *intend*, not to *verify*.
+* **Vibe Code Safely:** Go as fast as you want. Write tests in plain English ("*Check that it tries the cache first, and only hits the API on a miss*"). The system proves the LLM's architecture is sound. 
+* **Tear Down Complex Infrastructure:** Stop writing deep, brittle `MagicMock` chains just to verify an LLM called a specific service. Write to *intend*, not to *verify*.
 * **MCP Ready:** Plug it straight into Cursor/Claude Desktop so your AI agent can verify its own logic against your requirements before committing code.
 
 ## 📦 Installation
