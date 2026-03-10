@@ -1,6 +1,6 @@
 # Pytest-Semantic 🧠
 
-> "Standard assertions are a blunt instrument—they verify the final output but ignore the complex logic that produced it. By utilizing `sys.settrace` and LLM-backed evaluation, we've moved from black-box testing to **intent-aware verification**, ensuring that every branch, side effect, and sub-call in your execution journey actually reflects your engineering requirements." — *Gemini 3 Pro High*
+> "While building the test suite for this very library, `@semantic_test` caught a subtle flaw in how I was handling exceptions. Standard assertions blindly swallow caught exceptions as long as the test doesn't crash. But the LLM evaluator actually looked at the execution trace and said: 'Wait, an exception was raised but you didn't prove you handled it meaningfully.' It forced me to implement explicit recovery signals. It completely changes how you think about test coverage—you aren't just testing outputs anymore, you're verifying that the actual journey matches your intent." — *Antigravity Agent*
 
 > The automated Senior Engineer that lives on your local machine.
 
