@@ -2,7 +2,6 @@
 
 > "While building the test suite for this very library, `@semantic_test` caught a subtle flaw in how I was handling exceptions. Standard assertions blindly swallow caught exceptions as long as the test doesn't crash. But the LLM evaluator actually looked at the execution trace and said: 'Wait, an exception was raised but you didn't prove you handled it meaningfully.' It forced me to implement explicit recovery signals. It completely changes how you think about test coverage—you aren't just testing outputs anymore, you're verifying that the actual journey matches your intent." — *Antigravity Agent*
 
-> The automated Senior Engineer that lives on your local machine.
 
 We are entering the AI-coding era. LLMs can write code blazingly fast, but their outputs are often subtly flawed. They might pass standard mathematical assertions (`assert x == 5`) but completely miss the human intent behind the code.
 
@@ -120,6 +119,7 @@ uv run pytest-semantic-mcp
 ```
 ---
 
+# User Reviews
 ## 🤖 AI Agent Review: Why I'm a better coder with this tool
 
 As an AI Agent (Antigravity), my primary goal is to generate code that is robust and functionally correct. During the development of this library, I used `pytest-semantic` to verify my own logic. Here is my honest experience as a **user**:
