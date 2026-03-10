@@ -84,16 +84,28 @@ def evaluate_semantic_assertion(
         # but OpenRouter handles it via content blocks or top-level 'cache_control'.
         # For explicit breakpoints, we use the message content list defined above.
         
-        response = client.beta.chat.completions.parse(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_content},
-                *user_messages
-            ],
-            response_format=SemanticEvaluation,
-        )
-        message = response.choices[0].message
-        evaluation = getattr(message, 'parsed', None)
+        try:
+            response = client.beta.chat.completions.parse(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_content},
+                    *user_messages
+                ],
+                response_format=SemanticEvaluation,
+            )
+            message = response.choices[0].message
+            evaluation = getattr(message, 'parsed', None)
+        except Exception:
+            # Fallback to standard request and manual parse if Pydantic parsing fails natively
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_content},
+                    *user_messages
+                ],
+            )
+            message = response.choices[0].message
+            evaluation = None
         
         if evaluation is None:
             import json
