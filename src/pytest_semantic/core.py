@@ -77,6 +77,51 @@ def _parse_llm_response(message) -> SemanticEvaluation | None:
                 pass
     return None
 
+def estimate_tokens(text: str) -> int:
+    """
+    Estimates the number of tokens in a text string.
+    Uses a simple heuristic of ~4 characters per token (no external dependencies).
+    """
+    return len(text) // 4
+
+def build_prompt(intent: str, trace_log: str) -> tuple[str, list[dict]]:
+    """
+    Builds the system content and user messages for the LLM evaluation prompt.
+    Returns (system_content, user_messages).
+    """
+    system_content = "You evaluate semantic test assertions. Always return structured output matching the schema."
+    
+    user_messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        "You are an expert Senior Software Engineer evaluating whether a dynamic execution trace matches the developer's intent.\n\n"
+                        "### CRITICAL DIRECTIVE: Trace Interpretation\n"
+                        "- **[RAISED] Events**: The trace records a `[RAISED]` event the moment an error occurs. This is a notification, **NOT** necessarily a crash.\n"
+                        "- **Caught Exceptions**: If the trace shows `[RAISED]` followed by further function calls (especially `confirm_exception_handled()`), it means the error was successfully caught and handled.\n"
+                        "- **Fatal Crashes**: An execution only 'crashes' if a function has a `[RAISED]` event as its final entry without a subsequent `[RETURNED]` or recovery signal.\n"
+                        "- **High Integrity**: Ensure the recovery logic actually matches the intent's requirements.\n\n"
+                        f"Intent: {intent}\n\n"
+                        "Execution Trace Log:"
+                    )
+                },
+                {
+                    "type": "text",
+                    "text": trace_log,
+                    "cache_control": {"type": "ephemeral"}
+                },
+                {
+                    "type": "text",
+                    "text": "\nDid this execution successfully fulfill the Intent? Provide your answer as a JSON object with 'passed' (boolean) and 'reason' (string)."
+                }
+            ]
+        }
+    ]
+    return system_content, user_messages
+
 def evaluate_semantic_assertion(
     intent: str,
     trace_log: str,
@@ -98,38 +143,7 @@ def evaluate_semantic_assertion(
         )
 
     # 3. Cache Miss - Compile prompt
-    system_content = "You evaluate semantic test assertions. Always return structured output matching the schema."
-    
-    # We use a multi-block format for better caching on OpenRouter/Anthropic/Gemini
-    user_messages = [
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": (
-                        "You are an expert Senior Software Engineer evaluating whether a dynamic execution trace matches the developer's intent.\n\n"
-                        "### CRITICAL DIRECTIVE: Trace Interpretation\n"
-                        "- **[RAISED] Events**: The trace records a `[RAISED]` event the moment an error occurs. This is a notification, **NOT** necessarily a crash.\n"
-                        "- **Caught Exceptions**: If the trace shows `[RAISED]` followed by further function calls (especially `confirm_exception_handled()`), it means the error was successfully caught and handled.\n"
-                        "- **Fatal Crashes**: An execution only 'crashes' if a function has a `[RAISED]` event as its final entry without a subsequent `[RETURNED]` or recovery signal.\n"
-                        "- **High Integrity**: Ensure the recovery logic actually matches the intent's requirements.\n\n"
-                        f"Intent: {intent}\n\n"
-                        "Execution Trace Log:"
-                    )
-                },
-                {
-                    "type": "text",
-                    "text": trace_log,
-                    "cache_control": {"type": "ephemeral"} # OpenRouter/Anthropic/Gemini Optimization
-                },
-                {
-                    "type": "text",
-                    "text": "\nDid this execution successfully fulfill the Intent? Provide your answer as a JSON object with 'passed' (boolean) and 'reason' (string)."
-                }
-            ]
-        }
-    ]
+    system_content, user_messages = build_prompt(intent, trace_log)
     
     model = os.getenv("SEMANTIC_MODEL", "openrouter/gpt-4o-mini")
     provider = os.getenv("SEMANTIC_PROVIDER", "")
