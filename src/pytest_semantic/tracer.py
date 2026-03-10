@@ -11,10 +11,36 @@ class ExecutionTracer:
     def start(self):
         self.trace_log = []
         self.call_depth = 0
-        sys.settrace(self._trace_calls)
+        
+        try:
+            sys.monitoring.use_tool_id(sys.monitoring.DEBUGGER_ID, "pytest-semantic")
+        except ValueError:
+            # Might already be in use from a previous test
+            try:
+                sys.monitoring.free_tool_id(sys.monitoring.DEBUGGER_ID)
+                sys.monitoring.use_tool_id(sys.monitoring.DEBUGGER_ID, "pytest-semantic")
+            except ValueError:
+                pass
+            
+        events = (
+            sys.monitoring.events.PY_START |
+            sys.monitoring.events.PY_RETURN |
+            sys.monitoring.events.RAISE |
+            sys.monitoring.events.PY_UNWIND
+        )
+        sys.monitoring.set_events(sys.monitoring.DEBUGGER_ID, events)
+        
+        sys.monitoring.register_callback(sys.monitoring.DEBUGGER_ID, sys.monitoring.events.PY_START, self._on_py_start)
+        sys.monitoring.register_callback(sys.monitoring.DEBUGGER_ID, sys.monitoring.events.PY_RETURN, self._on_py_return)
+        sys.monitoring.register_callback(sys.monitoring.DEBUGGER_ID, sys.monitoring.events.RAISE, self._on_raise)
+        sys.monitoring.register_callback(sys.monitoring.DEBUGGER_ID, sys.monitoring.events.PY_UNWIND, self._on_unwind)
 
     def stop(self):
-        sys.settrace(None)
+        try:
+            sys.monitoring.set_events(sys.monitoring.DEBUGGER_ID, 0)
+            sys.monitoring.free_tool_id(sys.monitoring.DEBUGGER_ID)
+        except ValueError:
+            pass
 
     def get_log_string(self) -> str:
         return "\n".join(self.trace_log)
@@ -24,6 +50,10 @@ class ExecutionTracer:
             return False
             
         abs_path = os.path.abspath(filepath)
+        
+        # Prevent self-tracing
+        if abs_path == os.path.abspath(__file__):
+            return False
         
         # Must be in the project dir
         if not abs_path.startswith(self.target_directory):
@@ -48,58 +78,71 @@ class ExecutionTracer:
             
         return str(args_dict)
 
-    def _trace_calls(self, frame, event, arg):
-        if event == 'call':
-            func_name = frame.f_code.co_name
-            filepath = frame.f_code.co_filename
+    def _on_py_start(self, code, instruction_offset, *args):
+        filepath = code.co_filename
+        if not self._should_trace_file(filepath):
+            return sys.monitoring.DISABLE
             
-            if self._should_trace_file(filepath):
-                indent = "  " * self.call_depth
-                args_str = self._format_args(frame)
-                
-                log_entry = f"{len(self.trace_log) + 1}. {indent}[CALLED] {func_name}({args_str})"
-                self.trace_log.append(log_entry)
-                
-                # Fetch source code for deep LLM context
-                try:
-                    # We might not be able to get source if it's dynamic
-                    source_lines, _ = inspect.getsourcelines(frame.f_code)
-                    source_code = "".join(source_lines)
-                    self.trace_log.append(f"{indent}# Source code of {func_name}:\n{indent}{source_code.strip()}\n")
-                except OSError:
-                    pass
-                
-                self.call_depth += 1
-                return self._trace_calls
-            return None # Don't trace into this function's local lines if we didn't match the file rule
+        func_name = code.co_name
+        indent = "  " * self.call_depth
+        
+        try:
+            frame = sys._getframe(1)
+            args_str = self._format_args(frame)
+        except Exception:
+            args_str = "{}"
             
-        elif event == 'return':
-            func_name = frame.f_code.co_name
-            filepath = frame.f_code.co_filename
+        log_entry = f"{len(self.trace_log) + 1}. {indent}[CALLED] {func_name}({args_str})"
+        self.trace_log.append(log_entry)
+        
+        # Fetch source code for deep LLM context
+        try:
+            source_lines, _ = inspect.getsourcelines(code)
+            source_code = "".join(source_lines)
+            self.trace_log.append(f"{indent}# Source code of {func_name}:\n{indent}{source_code.strip()}\n")
+        except OSError:
+            pass
             
-            if self._should_trace_file(filepath):
-                self.call_depth = max(0, self.call_depth - 1)
-                indent = "  " * self.call_depth
-                
-                # 'arg' holds the return value for a 'return' event
-                return_val_str = str(arg)
-                # truncate massive return values?
-                if len(return_val_str) > 500:
-                    return_val_str = return_val_str[:500] + "... [truncated]"
-                    
-                log_entry = f"{len(self.trace_log) + 1}. {indent}[RETURNED] {func_name} -> {return_val_str}"
-                self.trace_log.append(log_entry)
-                
-        elif event == 'exception':
-            func_name = frame.f_code.co_name
-            filepath = frame.f_code.co_filename
+        self.call_depth += 1
+
+    def _on_py_return(self, code, instruction_offset, retval, *args):
+        filepath = code.co_filename
+        if not self._should_trace_file(filepath):
+            return sys.monitoring.DISABLE
             
-            if self._should_trace_file(filepath):
-                indent = "  " * self.call_depth
-                exc_type, exc_value, exc_traceback = arg
-                
-                exc_str = f"{exc_type.__name__}: {str(exc_value)}"
-                log_entry = f"{len(self.trace_log) + 1}. {indent}[RAISED] {func_name} -> {exc_str}"
-                self.trace_log.append(log_entry)
-                
-        return self._trace_calls
+        self.call_depth = max(0, self.call_depth - 1)
+        indent = "  " * self.call_depth
+        func_name = code.co_name
+        
+        return_val_str = str(retval)
+        if len(return_val_str) > 500:
+            return_val_str = return_val_str[:500] + "... [truncated]"
+            
+        log_entry = f"{len(self.trace_log) + 1}. {indent}[RETURNED] {func_name} -> {return_val_str}"
+        self.trace_log.append(log_entry)
+
+    def _on_raise(self, code, instruction_offset, exception, *args):
+        filepath = code.co_filename
+        if not self._should_trace_file(filepath):
+            return None
+            
+        indent = "  " * self.call_depth
+        func_name = code.co_name
+        
+        exc_str = f"{type(exception).__name__}: {str(exception)}"
+        log_entry = f"{len(self.trace_log) + 1}. {indent}[RAISED] {func_name} -> {exc_str}"
+        self.trace_log.append(log_entry)
+
+    def _on_unwind(self, code, instruction_offset, exception, *args):
+        filepath = code.co_filename
+        if not self._should_trace_file(filepath):
+            return None
+            
+        self.call_depth = max(0, self.call_depth - 1)
+        indent = "  " * self.call_depth
+        func_name = code.co_name
+        
+        # sys.settrace historically triggered a 'return' event with None when unwinding from an exception.
+        # We must replicate this to maintain cache hashes.
+        log_entry = f"{len(self.trace_log) + 1}. {indent}[RETURNED] {func_name} -> None"
+        self.trace_log.append(log_entry)

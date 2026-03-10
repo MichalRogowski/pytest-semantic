@@ -59,8 +59,12 @@ def evaluate_semantic_assertion(
     from openai import OpenAI
     client = None
     
-    # If using openrouter or minimax via openrouter
-    is_openrouter = model.startswith("openrouter/") or model.startswith("minimax/")
+    # Get provider and fallback to openrouter backward compatibility if not set
+    provider = os.getenv("SEMANTIC_PROVIDER", "")
+    if not provider:
+        provider = "openrouter" if (model.startswith("openrouter/") or model.startswith("minimax/")) else "openai"
+    
+    is_openrouter = provider.lower() == "openrouter"
     
     if is_openrouter:
         client = OpenAI(
@@ -88,7 +92,33 @@ def evaluate_semantic_assertion(
             ],
             response_format=SemanticEvaluation,
         )
-        evaluation = response.choices[0].message.parsed
+        message = response.choices[0].message
+        evaluation = getattr(message, 'parsed', None)
+        
+        if evaluation is None:
+            import json
+            for attr in ['content', 'reasoning']:
+                val = getattr(message, attr, None)
+                if val:
+                    # Strip markdown json block if present
+                    val = val.strip()
+                    if val.startswith("```json"):
+                        val = val[7:]
+                    if val.startswith("```"):
+                        val = val[3:]
+                    if val.endswith("```"):
+                        val = val[:-3]
+                    val = val.strip()
+                    try:
+                        data = json.loads(val)
+                        evaluation = SemanticEvaluation(**data)
+                        break
+                    except Exception:
+                        pass
+                
+        if evaluation is None:
+            print(f">>> DEBUG RAW RESPONSE:\n{response.model_dump_json(indent=2)}")
+            return SemanticEvaluation(passed=False, reason=f"Failed to parse LLM response. Raw: {getattr(message, 'content', None)}")
         
         # 4. Save to Cache
         cache_evaluation(eval_hash, evaluation.passed, evaluation.reason)
