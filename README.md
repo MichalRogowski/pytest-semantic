@@ -1,10 +1,10 @@
 # Pytest Semantic LLM 🧠
 
-**Fly through development with vibe coding, without fear of shipping broken logic.**
+**Vibe coding, without fear of shipping broken logic.**
 
 LLMs let you move at light-speed. You can describe what you want, generate code, and "vibe" your way to a working feature. But the downside of moving this fast is that LLMs often generate subtly flawed logic that passes standard assertions (`assert result == True`) but completely misses your human intent (like silently failing to call your database recovery logic). 
 
-`pytest-semantic-llm` is your safety net for the AI-coding era. It uses Python's native `sys.settrace()` to record the exact path your code took—every internal function call, argument, and exception. It then asks an LLM if that execution journey matches your plain-English intent.
+`pytest-semantic-llm` is your safety net for the AI-coding era. It uses Python's native `sys.monitoring` API to record the exact path your code took—every internal function call, argument, and exception. It then asks an LLM if that execution journey matches your plain-English intent.
 
 * **Vibe Code Safely:** Go as fast as you want. Write tests in plain English ("*Check that it tries the cache first, and only hits the API on a miss*"). The system proves the LLM's architecture is sound. 
 * **Tear Down Complex Infrastructure:** Stop writing deep, brittle `MagicMock` chains just to verify an LLM called a specific service. Write to *intend*, not to *verify*.
@@ -68,7 +68,7 @@ If your `RegistrationService.register()` logic forgets to call `EmailService.sen
 
 Most AI coding assistants utilize **Static Analysis**—they grep or parse the text of your `.py` files without ever executing them. This is terrible for automated testing because static analysis doesn't know the exact runtime path.
 
-`pytest-semantic` uses **Dynamic Runtime Analysis** via Python's native `sys.settrace()`. 
+`pytest-semantic` uses **Dynamic Runtime Analysis** via Python's native `sys.monitoring` API (introduced in Python 3.12). 
 
 Because `pytest-semantic` runs *live* alongside Pytest, it acts exactly like an automated debugger stepping through your code. As your test runs, our tracer records:
 1. The **Line-by-Line Execution Path**
@@ -102,7 +102,7 @@ Invoking an LLM on every test run is slow. `pytest-semantic` creates a determini
 When using OpenRouter with supported models (like Anthropic or Gemini), `pytest-semantic` automatically injects `cache_control` breakpoints. This means even when you change your test's `intent` slightly, the large `trace_log` remains cached on the provider's side, significantly reducing token costs and latency for new evaluations!
 
 ### Parallel Execution with `pytest-xdist`
-`pytest-semantic` is thread/process-safe. Each worker manages its own `sys.settrace` context.
+`pytest-semantic` is thread/process-safe. Each worker manages its own `sys.monitoring` context.
 ```bash
 uv run pytest -n auto
 ```
