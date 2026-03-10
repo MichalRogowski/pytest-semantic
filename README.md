@@ -35,7 +35,53 @@ SEMANTIC_BASE_URL=https://openrouter.ai/api/v1
 
 ---
 
-## 🚀 Quick Start: A Dead-Simple Example
+## � MCP Server Integration
+
+`pytest-semantic-llm` includes an Anthropic MCP Server. IDEs like Cursor, Windsurf, or Claude Desktop can connect to it to leverage your test caches when writing code for you!
+
+### Option 1: Global Execution (Recommended)
+You don't even need to install the package into your project to use its agent if you have `uv` installed. Add this to your IDE's MCP settings (e.g., `claude_desktop_config.json` or Cursor's MCP config):
+
+```json
+{
+  "mcpServers": {
+    "pytest-semantic": {
+      "command": "uvx",
+      "args": ["--from", "pytest-semantic-llm", "pytest-semantic-mcp"],
+      "env": {
+        "OPENROUTER_API_KEY": "sk-...",
+        "SEMANTIC_PROVIDER": "openrouter",
+        "SEMANTIC_MODEL": "minimax/minimax-m2.5o",
+        "SEMANTIC_BASE_URL": "https://openrouter.ai/api/v1"
+      }
+    }
+  }
+}
+```
+
+### Option 2: Project-Local Execution
+If you added it to your project's `dev` dependencies (`uv add --dev pytest-semantic-llm`), you can configure the MCP to run directly from your local environment:
+
+```json
+{
+  "mcpServers": {
+    "pytest-semantic": {
+      "command": "uv",
+      "args": ["run", "pytest-semantic-mcp"],
+      "env": {
+        "OPENROUTER_API_KEY": "sk-...",
+        "SEMANTIC_PROVIDER": "openrouter",
+        "SEMANTIC_MODEL": "minimax/minimax-m2.5o",
+        "SEMANTIC_BASE_URL": "https://openrouter.ai/api/v1"
+      }
+    }
+  }
+}
+```
+
+---
+
+## �🚀 Quick Start: A Dead-Simple Example
 
 Stop mocking side-effects. Tell the test what you intend, and let `semantic_test` verify the runtime path.
 
@@ -111,52 +157,6 @@ uv run pytest -n auto
 To force a full re-evaluation:
 ```bash
 rm .pytest_semantic_cache.db
-```
-
----
-
-## 🔌 MCP Server Integration
-
-`pytest-semantic` includes an Anthropic MCP Server. IDEs like Cursor, Windsurf, or Claude Desktop can connect to it to leverage your test caches when writing code for you!
-
-### Option 1: Global Execution (Recommended)
-You don't even need to install the package into your project to use its agent if you have `uv` installed. Add this to your IDE's MCP settings (e.g., `claude_desktop_config.json` or Cursor's MCP config):
-
-```json
-{
-  "mcpServers": {
-    "pytest-semantic": {
-      "command": "uvx",
-      "args": ["--from", "pytest-semantic-llm", "pytest-semantic-mcp"],
-      "env": {
-        "OPENROUTER_API_KEY": "sk-...",
-        "SEMANTIC_PROVIDER": "openrouter",
-        "SEMANTIC_MODEL": "minimax/minimax-m2.5o",
-        "SEMANTIC_BASE_URL": "https://openrouter.ai/api/v1"
-      }
-    }
-  }
-}
-```
-
-### Option 2: Project-Local Execution
-If you added it to your project's `dev` dependencies (`uv add --dev pytest-semantic-llm`), you can configure the MCP to run directly from your local environment:
-
-```json
-{
-  "mcpServers": {
-    "pytest-semantic": {
-      "command": "uv",
-      "args": ["run", "pytest-semantic-mcp"],
-      "env": {
-        "OPENROUTER_API_KEY": "sk-...",
-        "SEMANTIC_PROVIDER": "openrouter",
-        "SEMANTIC_MODEL": "minimax/minimax-m2.5o",
-        "SEMANTIC_BASE_URL": "https://openrouter.ai/api/v1"
-      }
-    }
-  }
-}
 ```
 ---
 
