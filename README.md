@@ -1,15 +1,19 @@
-# Pytest-Semantic 🧠
+# Pytest Semantic LLM 🧠
 
-> "While building the test suite for this very library, `@semantic_test` caught a subtle flaw in how I was handling exceptions. Standard assertions blindly swallow caught exceptions as long as the test doesn't crash. But the LLM evaluator actually looked at the execution trace and said: 'Wait, an exception was raised but you didn't prove you handled it meaningfully.' It forced me to implement explicit recovery signals. It completely changes how you think about test coverage—you aren't just testing outputs anymore, you're verifying that the actual journey matches your intent." — *Antigravity Agent*
+**Stop writing brittle mocks. Test your true logic.**
 
+`pytest-semantic-llm` acts like a Senior Staff Engineer verifying your code. It uses Python's native `sys.settrace()` to record exactly what your function *did*—every inner function call, argument, and exception—and asks an LLM if the execution journey matches your plain-English intent.
 
-We are entering the AI-coding era. LLMs can write code blazingly fast, but their outputs are often subtly flawed. They might pass standard mathematical assertions (`assert x == 5`) but completely miss the human intent behind the code.
-
-**`pytest-semantic` is the standard "anti-bullshit" verification layer.** It ensures that AI-generated code actually fulfills your plain-English intent before you ever commit or deploy it.
-
-Shift-Left Execution: Catch logic flaws on your MacBook in milliseconds, instead of discovering them in a Datadog CI pipeline 20 minutes later. English is the ultimate assertion.
+**Value Proposition:**
+*   **Less code:** Delete your messy `patch` and `MagicMock` boilerplate.
+*   **Real verification:** Catch logic flaws and swallowed exceptions that `assert x == 5` completely ignores.
+*   **MCP Ready:** Plug it straight into Cursor/Claude Desktop so your AI agent can verify its own code.
 
 ## 📦 Installation
+
+```bash
+uv add --dev pytest-semantic-llm
+```
 
 You can install `pytest-semantic` directly via `pip` or `uv`. This requires Python >= 3.14.
 
@@ -23,39 +27,43 @@ pip install pytest-semantic-llm
 
 ### Setup
 
-1. **Provide your API Key**: `pytest-semantic` supports OpenRouter (recommended), OpenAI, Anthropic, and Gemini.
-   ```bash
-   export OPENROUTER_API_KEY='your-key-here'
-   ```
-2. **(Optional) Configure Model**: Defaults to `openrouter/gpt-4o-mini`.
-   ```bash
-   export SEMANTIC_MODEL='openrouter/gpt-4o-mini'
-   ```
+Define your environment variables inside a `.env` file at your project's root:
+
+```env
+OPENROUTER_API_KEY=sk-...
+SEMANTIC_PROVIDER=openrouter
+SEMANTIC_MODEL=minimax/minimax-m2.5o
+SEMANTIC_BASE_URL=https://openrouter.ai/api/v1
+```
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Start: A Dead-Simple Example
 
-Wrap your Pytest functions with the `@semantic_test` decorator. It records the entire execution journey and verifies it against your intent.
+Stop mocking side-effects. Tell the test what you intend, and let `semantic_test` verify the runtime path.
 
+### 1. Write the Test
 ```python
-# test_user.py
+# test_user_flow.py
 from pytest_semantic import semantic_test
 
-@semantic_test(intent="User registers: check DB if exists, save if not, and send welcome email.")
-def test_successful_registration_flow():
+@semantic_test(intent="Check if the user exists in DB. If not, save the user to DB and send a welcome email.")
+def test_registration_flow():
+    # Setup your classes and dependencies normally
     db = Database()
-    email_svc = EmailService()
-    service = RegistrationService(db, email_svc)
+    email_client = EmailService()
+    service = RegistrationService(db, email_client)
     
-    result = service.register("new_user@example.com")
-    assert result == "Success"
+    # Run the function. The decorator monitors the internal journey.
+    service.register("new_user@example.com")
 ```
 
-Run your tests normally:
+### 2. Run Pytest
 ```bash
-uv run pytest tests/
+uv run pytest test_user_flow.py
 ```
+
+If your `RegistrationService.register()` logic forgets to call `EmailService.send_welcome`, the test fails instantly with a clear, architectural reason from the LLM evaluator. It literally debugs your code for you.
 
 ---
 
@@ -115,7 +123,7 @@ rm .pytest_semantic_cache.db
 `pytest-semantic` includes an Anthropic MCP Server. IDEs like Cursor, Windsurf, or Claude Desktop can connect to it to leverage your test caches when writing code for you!
 
 ### Option 1: Global Execution (Recommended)
-You don't even need to install `pytest-semantic` into your project to use its agent if you have `uv` installed. Add this to your IDE's MCP settings (e.g., `claude_desktop_config.json` or Cursor's MCP config):
+You don't even need to install the package into your project to use its agent if you have `uv` installed. Add this to your IDE's MCP settings (e.g., `claude_desktop_config.json` or Cursor's MCP config):
 
 ```json
 {
@@ -124,7 +132,10 @@ You don't even need to install `pytest-semantic` into your project to use its ag
       "command": "uvx",
       "args": ["--from", "pytest-semantic-llm", "pytest-semantic-mcp"],
       "env": {
-        "OPENROUTER_API_KEY": "<your-api-key-here>"
+        "OPENROUTER_API_KEY": "sk-...",
+        "SEMANTIC_PROVIDER": "openrouter",
+        "SEMANTIC_MODEL": "minimax/minimax-m2.5o",
+        "SEMANTIC_BASE_URL": "https://openrouter.ai/api/v1"
       }
     }
   }
@@ -132,7 +143,7 @@ You don't even need to install `pytest-semantic` into your project to use its ag
 ```
 
 ### Option 2: Project-Local Execution
-If you added `pytest-semantic` to your project's `dev` dependencies using `uv add --dev pytest-semantic-llm`, you can configure the MCP to run directly from your local environment:
+If you added it to your project's `dev` dependencies (`uv add --dev pytest-semantic-llm`), you can configure the MCP to run directly from your local environment:
 
 ```json
 {
@@ -141,7 +152,10 @@ If you added `pytest-semantic` to your project's `dev` dependencies using `uv ad
       "command": "uv",
       "args": ["run", "pytest-semantic-mcp"],
       "env": {
-        "OPENROUTER_API_KEY": "<your-api-key-here>"
+        "OPENROUTER_API_KEY": "sk-...",
+        "SEMANTIC_PROVIDER": "openrouter",
+        "SEMANTIC_MODEL": "minimax/minimax-m2.5o",
+        "SEMANTIC_BASE_URL": "https://openrouter.ai/api/v1"
       }
     }
   }
