@@ -48,7 +48,10 @@ def test_server_run(monkeypatch):
     import mcp.server.stdio
     
     class MockStream:
-        pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            pass
         
     class MockStdioContext:
         async def __aenter__(self):

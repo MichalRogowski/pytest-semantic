@@ -1,142 +1,162 @@
 import pytest
-from pytest_semantic import semantic_test
-from pytest_semantic.core import evaluate_semantic_assertion, SemanticEvaluation
+import os
+import uuid
+from pytest_semantic.core import evaluate_semantic_assertion, SemanticEvaluation, _get_llm_client
 
-class MockMessage:
-    def __init__(self, passed, reason):
-        self.parsed = SemanticEvaluation(passed=passed, reason=reason)
+# These tests mock components used by evaluate_semantic_assertion.
+# Since the library uses `openai.OpenAI`, we mock that.
 
-class MockChoice:
-    def __init__(self, passed, reason):
-        self.message = MockMessage(passed, reason)
-
-class MockResponse:
-    def __init__(self, passed, reason):
-        self.choices = [MockChoice(passed, reason)]
-
-class MockCompletions:
-    def __init__(self, passed=True, reason="Mocked OK", fail_on_call=False):
-        self._passed = passed
-        self._reason = reason
-        self._fail_on_call = fail_on_call
-
-    def parse(self, *args, **kwargs):
-        if self._fail_on_call:
-            raise RuntimeError("Mock LLM Failure")
-        return MockResponse(self._passed, self._reason)
-
-class MockChat:
-    def __init__(self, passed=True, reason="Mocked OK", fail_on_call=False):
-        self.completions = MockCompletions(passed, reason, fail_on_call)
-
-class MockBeta:
-    def __init__(self, passed=True, reason="Mocked OK", fail_on_call=False):
-        self.chat = MockChat(passed, reason, fail_on_call)
-
-class MockOpenAI:
-    def __init__(self, passed=True, reason="Mocked OK", fail_on_call=False):
-        self.beta = MockBeta(passed, reason, fail_on_call)
-
-@pytest.fixture
-def mock_openai(monkeypatch):
-    def _create_mock(passed=True, reason="Mocked OK", fail_on_call=False):
-        def _mock_init(*args, **kwargs):
-            return MockOpenAI(passed, reason, fail_on_call)
+def test_core_evaluation_success(monkeypatch):
+    class MockParsed:
+        def __init__(self):
+            self.parsed = SemanticEvaluation(passed=True, reason="All good")
+    
+    class MockChoice:
+        def __init__(self):
+            self.message = MockParsed()
+            
+    class MockResponse:
+        def __init__(self):
+            self.choices = [MockChoice()]
+            
+    def mock_parse(*args, **kwargs):
+        return MockResponse()
         
-        import openai
-        monkeypatch.setattr(openai, "OpenAI", _mock_init)
-    return _create_mock
+    mock_client = type("Client", (), {
+        "beta": type("Beta", (), {
+            "chat": type("Chat", (), {
+                "completions": type("Completions", (), {"parse": mock_parse})
+            })
+        })
+    })
 
-@semantic_test(intent="Must successfully return a true SemanticEvaluation object when the LLM parses and passes the prompt.")
-def test_core_evaluation_success(mock_openai):
-    mock_openai(passed=True, reason="Success reasoning")
-    # Need a unique intent string to defeat the local SQLite cache from previous tests!
-    result = evaluate_semantic_assertion(
-        intent="unique_intent_success_execution_trace_456",
-        trace_log="1. [CALLED] function()\n2. [RETURNED] function -> True"
-    )
+    monkeypatch.setattr("pytest_semantic.core._get_llm_client", lambda provider: mock_client)
+    
+    # Use unique intent to avoid cache hits
+    intent = f"success_intent_{uuid.uuid4()}"
+    result = evaluate_semantic_assertion(intent, "trace")
     assert result.passed is True
+    assert result.reason == "All good"
 
-def test_core_evaluation_exception(mock_openai):
-    mock_openai(fail_on_call=True)
-    evaluation = evaluate_semantic_assertion(
-        intent="unique_intent_failure_123",
-        trace_log="[CALLED] function() -> None"
-    )
-    assert evaluation.passed is False
-    assert "LLM Evaluation failed" in evaluation.reason
+def test_core_evaluation_exception(monkeypatch):
+    def mock_get_client(provider):
+        raise Exception("API Error")
+        
+    monkeypatch.setattr("pytest_semantic.core._get_llm_client", mock_get_client)
+    
+    # Use unique intent
+    intent = f"exception_intent_{uuid.uuid4()}"
+    result = evaluate_semantic_assertion(intent, "trace")
+    assert result.passed is False
+    assert "LLM Evaluation failed: API Error" in result.reason
 
 def test_core_fallback_standard_openai(monkeypatch):
-    # Test lines 81-84: Fallback to standard OpenAI if SEMANTIC_MODEL doesn't start with openrouter/
-    import os
-    monkeypatch.setenv("SEMANTIC_MODEL", "gpt-4o")
+    monkeypatch.delenv("SEMANTIC_BASE_URL", raising=False)
+    monkeypatch.setenv("SEMANTIC_PROVIDER", "openai")
     
-    # We don't need semantic verify here because this is purely an internal initialization path check
-    from pytest_semantic.core import evaluate_semantic_assertion
+    import pytest_semantic.core as core
+    captured = []
     
-    # Setup mock to fail immediately so we don't make network calls, we just want to cover the if/else branch
-    import openai
-    def mock_init(*args, **kwargs):
-        raise ValueError("Hit standard OpenAI Init Branch")
-    monkeypatch.setattr(openai, "OpenAI", mock_init)
+    def mock_get(provider):
+        captured.append(provider)
+        return type("Client", (), {
+            "beta": type("Beta", (), {
+                "chat": type("Chat", (), {
+                    "completions": type("Completions", (), {
+                        "parse": lambda **k: type("R", (), {"choices": [type("C", (), {"message": type("M", (), {"parsed": SemanticEvaluation(passed=True, reason="o")})})()]})()
+                    })
+                })
+            })
+        })
+        
+    monkeypatch.setattr(core, "_get_llm_client", mock_get)
     
-    with pytest.raises(ValueError, match="Hit standard OpenAI Init Branch"):
-        evaluate_semantic_assertion(
-            intent="unique_intent_branch_test_123",
-            trace_log="[CALLED] function() -> None"
-        )
+    intent = f"fallback_intent_{uuid.uuid4()}"
+    evaluate_semantic_assertion(intent, "t")
+    assert "openai" in captured
 
 def test_core_ollama_provider_init(monkeypatch):
-    """Test that SEMANTIC_PROVIDER=ollama correctly configures the OpenAI client."""
     monkeypatch.setenv("SEMANTIC_PROVIDER", "ollama")
-    monkeypatch.setenv("SEMANTIC_MODEL", "llama3")
-    monkeypatch.setenv("SEMANTIC_BASE_URL", "http://local-ollama:11434/v1")
+    monkeypatch.setenv("SEMANTIC_BASE_URL", "http://localhost:11434/v1")
+    
+    import pytest_semantic.core as core
+    captured_base_url = None
+    
+    class MockClient:
+        def __init__(self, **kwargs):
+            nonlocal captured_base_url
+            captured_base_url = kwargs.get("base_url")
     
     import openai
-    base_url_called = None
+    monkeypatch.setattr(openai, "OpenAI", MockClient)
     
-    class MockOpenAIInit:
-        def __init__(self, base_url=None, **kwargs):
-            nonlocal base_url_called
-            base_url_called = base_url
-            raise ValueError("Stop execution after init")
-            
-    monkeypatch.setattr(openai, "OpenAI", MockOpenAIInit)
-    
-    from pytest_semantic.core import evaluate_semantic_assertion
-    
-    with pytest.raises(ValueError, match="Stop execution after init"):
-        evaluate_semantic_assertion(
-            intent="ollama_init_test",
-            trace_log="[CALLED] test()"
-        )
-    
-    assert base_url_called == "http://local-ollama:11434/v1"
+    core._get_llm_client("ollama")
+    assert captured_base_url == "http://localhost:11434/v1"
 
 def test_core_openrouter_base_url_override(monkeypatch):
-    """Test that SEMANTIC_BASE_URL overrides the default OpenRouter base URL."""
     monkeypatch.setenv("SEMANTIC_PROVIDER", "openrouter")
-    monkeypatch.setenv("SEMANTIC_MODEL", "openrouter/gpt-4o-mini")
-    monkeypatch.setenv("SEMANTIC_BASE_URL", "https://custom-openrouter.example.com/v1")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SEMANTIC_BASE_URL", "https://openrouter.ai/api/v1/custom")
     
-    import openai
-    base_url_called = None
+    import pytest_semantic.core as core
+    captured_base_url = None
     
-    class MockOpenAIInit:
-        def __init__(self, base_url=None, **kwargs):
-            nonlocal base_url_called
-            base_url_called = base_url
-            raise ValueError("Stop execution after init")
+    class MockClient:
+        def __init__(self, **kwargs):
+            nonlocal captured_base_url
+            captured_base_url = kwargs.get("base_url")
             
-    monkeypatch.setattr(openai, "OpenAI", MockOpenAIInit)
+    import openai
+    monkeypatch.setattr(openai, "OpenAI", MockClient)
     
-    from pytest_semantic.core import evaluate_semantic_assertion
+    core._get_llm_client("openrouter")
+    assert captured_base_url == "https://openrouter.ai/api/v1/custom"
+
+def test_core_provider_fallback_by_model(monkeypatch):
+    import pytest_semantic.core as core
+    monkeypatch.setenv("SEMANTIC_PROVIDER", "")
+    monkeypatch.setenv("SEMANTIC_MODEL", "openrouter/gpt-4o")
     
-    with pytest.raises(ValueError, match="Stop execution after init"):
-        evaluate_semantic_assertion(
-            intent="openrouter_base_url_test",
-            trace_log="[CALLED] test()"
-        )
+    captured = []
     
-    assert base_url_called == "https://custom-openrouter.example.com/v1"
+    def mock_get(provider):
+        captured.append(provider)
+        return type("Client", (), {"beta": type("B", (), {"chat": type("C", (), {"completions": type("C2", (), {"parse": lambda **k: None})})})})()
+        
+    monkeypatch.setattr(core, "_get_llm_client", mock_get)
+    
+    # Force a cache miss
+    intent = f"fallback_test_{uuid.uuid4()}"
+    try:
+        core.evaluate_semantic_assertion(intent, "trace")
+    except Exception:
+        pass
+    assert "openrouter" in captured
+
+def test_core_provider_fallback_default(monkeypatch):
+    import pytest_semantic.core as core
+    monkeypatch.setenv("SEMANTIC_PROVIDER", "")
+    monkeypatch.setenv("SEMANTIC_MODEL", "gpt-4o") # no slash
+    
+    captured = []
+    def mock_get(provider):
+        captured.append(provider)
+        return type("Client", (), {"beta": type("B", (), {"chat": type("C", (), {"completions": type("C2", (), {"parse": lambda **k: None})})})})()
+    monkeypatch.setattr(core, "_get_llm_client", mock_get)
+    
+    intent = f"fallback_default_{uuid.uuid4()}"
+    try:
+        core.evaluate_semantic_assertion(intent, "trace")
+    except Exception:
+        pass
+    assert "openai" in captured
+
+def test_core_evaluate_assertion_catch_all(monkeypatch):
+    import pytest_semantic.core as core
+    # Force an error inside the try block of evaluate_semantic_assertion
+    # e.g. build_prompt fails
+    monkeypatch.setattr(core, "build_prompt", lambda i, t: exec('raise RuntimeError("top level fail")'))
+    
+    intent = f"catch_all_{uuid.uuid4()}"
+    result = core.evaluate_semantic_assertion(intent, "trace")
+    assert result.passed is False
+    assert "LLM Evaluation failed: top level fail" in result.reason

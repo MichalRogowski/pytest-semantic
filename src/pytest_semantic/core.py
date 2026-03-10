@@ -65,10 +65,12 @@ def _parse_llm_response(message) -> SemanticEvaluation | None:
             val = val.strip()
             if val.startswith("```json"):
                 val = val[7:]
-            if val.startswith("```"):
+            elif val.startswith("```"):
                 val = val[3:]
+            
             if val.endswith("```"):
                 val = val[:-3]
+            
             val = val.strip()
             try:
                 data = json.loads(val)
@@ -135,26 +137,20 @@ def evaluate_semantic_assertion(
     eval_hash = generate_hash(intent, trace_log)
     
     # 2. Check cache
-    cached_result = get_cached_evaluation(eval_hash)
-    if cached_result:
-        return SemanticEvaluation(
-            passed=cached_result["passed"],
-            reason=cached_result["reason"] + " (Cached)"
-        )
+    cached = get_cached_evaluation(eval_hash)
+    if cached:
+        return SemanticEvaluation(passed=cached["passed"], reason=f"{cached['reason']} (Cached)")
 
-    # 3. Cache Miss - Compile prompt
-    system_content, user_messages = build_prompt(intent, trace_log)
-    
-    model = os.getenv("SEMANTIC_MODEL", "openrouter/gpt-4o-mini")
-    provider = os.getenv("SEMANTIC_PROVIDER", "")
-    
-    # Fallback logic for provider
-    if not provider:
-        provider = "openrouter" if (model.startswith("openrouter/") or model.startswith("minimax/")) else "openai"
-    
-    client = _get_llm_client(provider)
-
+    # 3. Evaluate Assertion
     try:
+        model = os.getenv("SEMANTIC_MODEL", "openrouter/gpt-4o-mini")
+        provider = os.getenv("SEMANTIC_PROVIDER", "")
+        if not provider:
+            provider = "openrouter" if (model.startswith("openrouter/") or model.startswith("minimax/")) else "openai"
+        
+        system_content, user_messages = build_prompt(intent, trace_log)
+        client = _get_llm_client(provider)
+
         try:
             # Beta parse supports structured output for compatible providers
             response = client.beta.chat.completions.parse(
@@ -167,7 +163,7 @@ def evaluate_semantic_assertion(
             )
             evaluation = _parse_llm_response(response.choices[0].message)
         except Exception:
-            # Fallback to standard request and manual parse if Pydantic parsing fails or provider doesn't support beta.parse
+            # Fallback to standard request and manual parse
             response = client.chat.completions.create(
                 model=model,
                 messages=[
@@ -178,16 +174,12 @@ def evaluate_semantic_assertion(
             evaluation = _parse_llm_response(response.choices[0].message)
         
         if evaluation is None:
-            # message is already consumed/assigned in _parse_llm_response contextually if we had access to it, 
-            # but let's be safe for debugging
             raw_content = getattr(response.choices[0].message, 'content', 'No content')
-            print(f">>> DEBUG RAW RESPONSE:\n{response.model_dump_json(indent=2)}")
             return SemanticEvaluation(passed=False, reason=f"Failed to parse LLM response. Raw: {raw_content}")
         
         # 4. Save to Cache
         cache_evaluation(eval_hash, evaluation.passed, evaluation.reason)
-        
         return evaluation
+        
     except Exception as e:
-        # Fallback error mapping
         return SemanticEvaluation(passed=False, reason=f"LLM Evaluation failed: {str(e)}")

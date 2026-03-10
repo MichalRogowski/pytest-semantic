@@ -140,3 +140,162 @@ def test_payment_failure_releases_stock_and_notifies():
     assert result["status"] == "payment_failed"
     # Standard assert checks the return — but did we actually release stock?
     # Did we actually notify the user? The semantic layer verifies that.
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# TRICKY BUGS — Code that "looks correct" and passes traditional asserts,
+#               but has subtle logic flaws only semantic testing catches.
+# ──────────────────────────────────────────────────────────────────────────────
+
+class BuggyOrderProcessor_SendsEmailBeforePayment:
+    """
+    BUG: Sends the order confirmation BEFORE charging payment.
+    If the payment fails afterward, the customer already got a
+    "your order is confirmed" email — a terrible user experience.
+
+    A traditional test asserting `result["status"] == "completed"`
+    would pass. The return value is identical to the correct version.
+    """
+    def __init__(self, inventory, payment, notifications):
+        self.inventory = inventory
+        self.payment = payment
+        self.notifications = notifications
+
+    def place_order(self, email, sku, qty, card_token):
+        available = self.inventory.check_stock(sku)
+        if available < qty:
+            return {"status": "out_of_stock", "available": available}
+
+        if not self.inventory.reserve(sku, qty):
+            return {"status": "reserve_failed"}
+
+        # BUG: notification fires BEFORE we know if payment succeeds
+        self.notifications.send_order_confirmation(email, "PENDING")
+
+        try:
+            receipt = self.payment.charge(qty * 29.99, card_token)
+        except Exception as e:
+            self.inventory.release(sku, qty)
+            self.notifications.send_payment_failure_alert(email, str(e))
+            return {"status": "payment_failed", "reason": str(e)}
+
+        return {"status": "completed", "tx_id": receipt["tx_id"]}
+
+
+class BuggyOrderProcessor_DoublesCharge:
+    """
+    BUG: Accidentally charges the customer TWICE due to a copy-paste error.
+    The return value still says "completed" with a valid transaction ID.
+
+    assert result["status"] == "completed" passes just fine.
+    """
+    def __init__(self, inventory, payment, notifications):
+        self.inventory = inventory
+        self.payment = payment
+        self.notifications = notifications
+
+    def place_order(self, email, sku, qty, card_token):
+        available = self.inventory.check_stock(sku)
+        if available < qty:
+            return {"status": "out_of_stock", "available": available}
+
+        if not self.inventory.reserve(sku, qty):
+            return {"status": "reserve_failed"}
+
+        try:
+            amount = qty * 29.99
+            self.payment.charge(amount, card_token)  # First charge
+            receipt = self.payment.charge(amount, card_token)  # BUG: second charge!
+        except Exception as e:
+            self.inventory.release(sku, qty)
+            return {"status": "payment_failed", "reason": str(e)}
+
+        self.notifications.send_order_confirmation(email, receipt["tx_id"])
+        return {"status": "completed", "tx_id": receipt["tx_id"]}
+
+
+class BuggyOrderProcessor_SwallowsException:
+    """
+    BUG: Catches the payment exception but does NOT release stock
+    or notify the user. Just silently returns "payment_failed".
+
+    The stock is now permanently "reserved" for an order that will
+    never be fulfilled — an inventory leak.
+
+    assert result["status"] == "payment_failed" passes perfectly.
+    """
+    def __init__(self, inventory, payment, notifications):
+        self.inventory = inventory
+        self.payment = payment
+        self.notifications = notifications
+
+    def place_order(self, email, sku, qty, card_token):
+        available = self.inventory.check_stock(sku)
+        if available < qty:
+            return {"status": "out_of_stock", "available": available}
+
+        if not self.inventory.reserve(sku, qty):
+            return {"status": "reserve_failed"}
+
+        try:
+            receipt = self.payment.charge(qty * 29.99, card_token)
+        except Exception as e:
+            # BUG: no stock release, no user notification — just swallowed
+            return {"status": "payment_failed", "reason": str(e)}
+
+        self.notifications.send_order_confirmation(email, receipt["tx_id"])
+        return {"status": "completed", "tx_id": receipt["tx_id"]}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# TESTS THAT CATCH THE BUGS
+# ──────────────────────────────────────────────────────────────────────────────
+
+@semantic_test(
+    intent="Order confirmation email must ONLY be sent AFTER payment is "
+           "successfully charged. The payment.charge() call must happen "
+           "BEFORE any notification is sent."
+)
+def test_catches_premature_notification():
+    """Traditional test: assert result["status"] == "completed" → PASSES ✅
+    Semantic test: catches that notification was sent before payment → FAILS ❌"""
+    inv = InventoryService()
+    pay = PaymentGateway()
+    notif = NotificationService()
+    processor = BuggyOrderProcessor_SendsEmailBeforePayment(inv, pay, notif)
+
+    result = processor.place_order("dave@example.com", "WIDGET-42", 1, "tok_visa")
+    assert result["status"] == "completed"  # This passes! But the logic is wrong.
+
+
+@semantic_test(
+    intent="Payment must be charged EXACTLY ONCE for the order amount. "
+           "The payment gateway charge() function must be called only one time."
+)
+def test_catches_double_charge():
+    """Traditional test: assert result["status"] == "completed" → PASSES ✅
+    Semantic test: catches that charge() was called twice → FAILS ❌"""
+    inv = InventoryService()
+    pay = PaymentGateway()
+    notif = NotificationService()
+    processor = BuggyOrderProcessor_DoublesCharge(inv, pay, notif)
+
+    result = processor.place_order("eve@example.com", "WIDGET-42", 2, "tok_visa")
+    assert result["status"] == "completed"  # This passes! Customer was charged double.
+
+
+@semantic_test(
+    intent="On payment failure, the system MUST release reserved stock back "
+           "to inventory AND send a payment failure alert notification to the "
+           "user. Both recovery actions are required — not just one."
+)
+def test_catches_swallowed_exception():
+    """Traditional test: assert result["status"] == "payment_failed" → PASSES ✅
+    Semantic test: catches missing stock release and notification → FAILS ❌"""
+    inv = InventoryService()
+    pay = PaymentGateway(should_fail=True)
+    notif = NotificationService()
+    processor = BuggyOrderProcessor_SwallowsException(inv, pay, notif)
+
+    result = processor.place_order("frank@example.com", "WIDGET-42", 3, "tok_visa")
+    assert result["status"] == "payment_failed"  # This passes! But stock is leaked.
