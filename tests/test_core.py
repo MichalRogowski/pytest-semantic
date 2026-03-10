@@ -85,3 +85,58 @@ def test_core_fallback_standard_openai(monkeypatch):
             intent="unique_intent_branch_test_123",
             trace_log="[CALLED] function() -> None"
         )
+
+def test_core_ollama_provider_init(monkeypatch):
+    """Test that SEMANTIC_PROVIDER=ollama correctly configures the OpenAI client."""
+    monkeypatch.setenv("SEMANTIC_PROVIDER", "ollama")
+    monkeypatch.setenv("SEMANTIC_MODEL", "llama3")
+    monkeypatch.setenv("SEMANTIC_BASE_URL", "http://local-ollama:11434/v1")
+    
+    import openai
+    base_url_called = None
+    
+    class MockOpenAIInit:
+        def __init__(self, base_url=None, **kwargs):
+            nonlocal base_url_called
+            base_url_called = base_url
+            raise ValueError("Stop execution after init")
+            
+    monkeypatch.setattr(openai, "OpenAI", MockOpenAIInit)
+    
+    from pytest_semantic.core import evaluate_semantic_assertion
+    
+    with pytest.raises(ValueError, match="Stop execution after init"):
+        evaluate_semantic_assertion(
+            intent="ollama_init_test",
+            trace_log="[CALLED] test()"
+        )
+    
+    assert base_url_called == "http://local-ollama:11434/v1"
+
+def test_core_openrouter_base_url_override(monkeypatch):
+    """Test that SEMANTIC_BASE_URL overrides the default OpenRouter base URL."""
+    monkeypatch.setenv("SEMANTIC_PROVIDER", "openrouter")
+    monkeypatch.setenv("SEMANTIC_MODEL", "openrouter/gpt-4o-mini")
+    monkeypatch.setenv("SEMANTIC_BASE_URL", "https://custom-openrouter.example.com/v1")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    
+    import openai
+    base_url_called = None
+    
+    class MockOpenAIInit:
+        def __init__(self, base_url=None, **kwargs):
+            nonlocal base_url_called
+            base_url_called = base_url
+            raise ValueError("Stop execution after init")
+            
+    monkeypatch.setattr(openai, "OpenAI", MockOpenAIInit)
+    
+    from pytest_semantic.core import evaluate_semantic_assertion
+    
+    with pytest.raises(ValueError, match="Stop execution after init"):
+        evaluate_semantic_assertion(
+            intent="openrouter_base_url_test",
+            trace_log="[CALLED] test()"
+        )
+    
+    assert base_url_called == "https://custom-openrouter.example.com/v1"

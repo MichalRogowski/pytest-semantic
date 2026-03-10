@@ -13,10 +13,78 @@ class SemanticEvaluation(BaseModel):
     passed: bool = Field(description="True if the code execution fulfilled the intent, False otherwise.")
     reason: str = Field(description="Reasoning for why the execution passed or failed.")
 
+_PROVIDER_DEFAULTS = {
+    "openrouter": "https://openrouter.ai/api/v1",
+    "ollama": "http://localhost:11434/v1",
+}
+
+def _get_llm_client(provider: str):
+    """
+    Returns an initialized LLM client based on the provider.
+    Base URL is read from SEMANTIC_BASE_URL env var, falling back to provider-specific defaults.
+    """
+    from openai import OpenAI
+    
+    provider_key = provider.lower()
+    base_url = os.getenv("SEMANTIC_BASE_URL", _PROVIDER_DEFAULTS.get(provider_key))
+    
+    if provider_key == "openrouter":
+        return OpenAI(
+            base_url=base_url,
+            api_key=os.environ.get("OPENROUTER_API_KEY"),
+            default_headers={
+                "HTTP-Referer": "https://github.com/michalrogowski/pytest-semantic", 
+                "X-Title": "pytest-semantic",
+            }
+        )
+    elif provider_key == "ollama":
+        return OpenAI(
+            base_url=base_url,
+            api_key="ollama", # Required by OpenAI client but ignored by Ollama
+        )
+    else:
+        # Fallback to standard OpenAI (base_url may be None, which uses the default)
+        kwargs = {}
+        if base_url:
+            kwargs["base_url"] = base_url
+        return OpenAI(**kwargs)
+
+def _parse_llm_response(message) -> SemanticEvaluation | None:
+    """
+    Attempts to parse the LLM message into a SemanticEvaluation object.
+    """
+    evaluation = getattr(message, 'parsed', None)
+    if evaluation:
+        return evaluation
+
+    import json
+    for attr in ['content', 'reasoning']:
+        val = getattr(message, attr, None)
+        if val:
+            # Strip markdown json block if present
+            val = val.strip()
+            if val.startswith("```json"):
+                val = val[7:]
+            if val.startswith("```"):
+                val = val[3:]
+            if val.endswith("```"):
+                val = val[:-3]
+            val = val.strip()
+            try:
+                data = json.loads(val)
+                return SemanticEvaluation(**data)
+            except Exception:
+                pass
+    return None
+
 def evaluate_semantic_assertion(
     intent: str,
     trace_log: str,
 ) -> SemanticEvaluation:
+    """
+    Evaluates whether the execution trace fulfills the developer's intent.
+    Uses LLM providers (OpenAI, OpenRouter, Ollama) for evaluation.
+    """
     
     # 1. Generate cache hash
     eval_hash = generate_hash(intent, trace_log)
@@ -39,7 +107,16 @@ def evaluate_semantic_assertion(
             "content": [
                 {
                     "type": "text",
-                    "text": f"You are an expert Senior Software Engineer evaluating whether a dynamic execution trace matches the developer's intent.\n\n### CRITICAL DIRECTIVE: Trace Interpretation\n- **[RAISED] Events**: The trace records a `[RAISED]` event the moment an error occurs. This is a notification, **NOT** necessarily a crash.\n- **Caught Exceptions**: If the trace shows `[RAISED]` followed by further function calls (especially `confirm_exception_handled()`), it means the error was successfully caught and handled.\n- **Fatal Crashes**: An execution only 'crashes' if a function has a `[RAISED]` event as its final entry without a subsequent `[RETURNED]` or recovery signal.\n- **High Integrity**: Ensure the recovery logic actually matches the intent's requirements.\n\nIntent: {intent}\n\nExecution Trace Log:"
+                    "text": (
+                        "You are an expert Senior Software Engineer evaluating whether a dynamic execution trace matches the developer's intent.\n\n"
+                        "### CRITICAL DIRECTIVE: Trace Interpretation\n"
+                        "- **[RAISED] Events**: The trace records a `[RAISED]` event the moment an error occurs. This is a notification, **NOT** necessarily a crash.\n"
+                        "- **Caught Exceptions**: If the trace shows `[RAISED]` followed by further function calls (especially `confirm_exception_handled()`), it means the error was successfully caught and handled.\n"
+                        "- **Fatal Crashes**: An execution only 'crashes' if a function has a `[RAISED]` event as its final entry without a subsequent `[RETURNED]` or recovery signal.\n"
+                        "- **High Integrity**: Ensure the recovery logic actually matches the intent's requirements.\n\n"
+                        f"Intent: {intent}\n\n"
+                        "Execution Trace Log:"
+                    )
                 },
                 {
                     "type": "text",
@@ -55,36 +132,17 @@ def evaluate_semantic_assertion(
     ]
     
     model = os.getenv("SEMANTIC_MODEL", "openrouter/gpt-4o-mini")
-    
-    from openai import OpenAI
-    client = None
-    
-    # Get provider and fallback to openrouter backward compatibility if not set
     provider = os.getenv("SEMANTIC_PROVIDER", "")
+    
+    # Fallback logic for provider
     if not provider:
         provider = "openrouter" if (model.startswith("openrouter/") or model.startswith("minimax/")) else "openai"
     
-    is_openrouter = provider.lower() == "openrouter"
-    
-    if is_openrouter:
-        client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=os.environ.get("OPENROUTER_API_KEY"),
-            default_headers={
-                "HTTP-Referer": "https://github.com/michalrogowski/pytest-semantic", 
-                "X-Title": "pytest-semantic",
-            }
-        )
-    else:
-        # Fallback to standard OpenAI
-        client = OpenAI()
+    client = _get_llm_client(provider)
 
     try:
-        # Note: Beta parse might not support prompt caching field directly in all providers, 
-        # but OpenRouter handles it via content blocks or top-level 'cache_control'.
-        # For explicit breakpoints, we use the message content list defined above.
-        
         try:
+            # Beta parse supports structured output for compatible providers
             response = client.beta.chat.completions.parse(
                 model=model,
                 messages=[
@@ -93,10 +151,9 @@ def evaluate_semantic_assertion(
                 ],
                 response_format=SemanticEvaluation,
             )
-            message = response.choices[0].message
-            evaluation = getattr(message, 'parsed', None)
+            evaluation = _parse_llm_response(response.choices[0].message)
         except Exception:
-            # Fallback to standard request and manual parse if Pydantic parsing fails natively
+            # Fallback to standard request and manual parse if Pydantic parsing fails or provider doesn't support beta.parse
             response = client.chat.completions.create(
                 model=model,
                 messages=[
@@ -104,33 +161,14 @@ def evaluate_semantic_assertion(
                     *user_messages
                 ],
             )
-            message = response.choices[0].message
-            evaluation = None
+            evaluation = _parse_llm_response(response.choices[0].message)
         
         if evaluation is None:
-            import json
-            for attr in ['content', 'reasoning']:
-                val = getattr(message, attr, None)
-                if val:
-                    # Strip markdown json block if present
-                    val = val.strip()
-                    if val.startswith("```json"):
-                        val = val[7:]
-                    if val.startswith("```"):
-                        val = val[3:]
-                    if val.endswith("```"):
-                        val = val[:-3]
-                    val = val.strip()
-                    try:
-                        data = json.loads(val)
-                        evaluation = SemanticEvaluation(**data)
-                        break
-                    except Exception:
-                        pass
-                
-        if evaluation is None:
+            # message is already consumed/assigned in _parse_llm_response contextually if we had access to it, 
+            # but let's be safe for debugging
+            raw_content = getattr(response.choices[0].message, 'content', 'No content')
             print(f">>> DEBUG RAW RESPONSE:\n{response.model_dump_json(indent=2)}")
-            return SemanticEvaluation(passed=False, reason=f"Failed to parse LLM response. Raw: {getattr(message, 'content', None)}")
+            return SemanticEvaluation(passed=False, reason=f"Failed to parse LLM response. Raw: {raw_content}")
         
         # 4. Save to Cache
         cache_evaluation(eval_hash, evaluation.passed, evaluation.reason)
